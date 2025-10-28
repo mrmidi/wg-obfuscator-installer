@@ -1,23 +1,57 @@
 from __future__ import annotations
+
+import hashlib
 import shutil
 from pathlib import Path
+
 from wg_installer.core.fs import write_file
 from wg_installer.core.runner import Runner
 from wg_installer.wireguard.manager import WG_PUB
 
 EXPORT_ROOT = Path("/var/lib/wg-installer/export")
 
-def build_client_bundle(public_host: str, pub_port: int, wg_port: int,
-                        client_ip: str, prefix: int, masking: str,
-                        obf_key: str, r: Runner) -> Path:
-    EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    pkg = EXPORT_ROOT / "pkg"
+
+def _ensure_clean_pkg_dir(pkg: Path, dry_run: bool) -> None:
+    """Make sure the export package directory exists and is empty."""
+    if pkg.exists():
+        if dry_run:
+            print(f"[DRY-RUN] Would remove existing bundle directory {pkg}")
+        else:
+            shutil.rmtree(pkg)
     pkg.mkdir(parents=True, exist_ok=True)
 
-    srv_pub = "<server-pub>" if r.dry_run else WG_PUB.read_text().strip()
 
+def _read_server_public_key(dry_run: bool) -> str:
+    if dry_run:
+        return "<server-pub>"
+    return WG_PUB.read_text(encoding="utf-8").strip()
+
+
+def _generate_client_private_key(r: Runner) -> str:
+    if r.dry_run:
+        print("[DRY-RUN] wg genkey")
+        return "DRYRUN_CLIENT_PRIVATE_KEY"
+    return r.run(["wg", "genkey"], capture=True).stdout.strip()
+
+
+def _write_client_configs(
+    pkg: Path,
+    *,
+    public_host: str,
+    pub_port: int,
+    wg_port: int,
+    client_ip: str,
+    prefix: int,
+    masking: str,
+    obf_key: str,
+    srv_pub: str,
+    client_private_key: str,
+    dry_run: bool,
+) -> None:
     client_obf = pkg / "client-obf.conf"
-    write_file(client_obf, f"""# wg-obfuscator client config
+    write_file(
+        client_obf,
+        """# wg-obfuscator client config
 source-if = 127.0.0.1
 source-lport = {wg_port}
 target = {public_host}:{pub_port}
@@ -25,40 +59,118 @@ key = {obf_key}
 masking = {masking}
 verbose = INFO
 idle-timeout = 300
-""", 0o600, r.dry_run)
-
-    if r.dry_run:
-        cli_priv = "DRYRUN_CLIENT_PRIVATE_KEY"
-    else:
-        cli_priv = r.run(["wg","genkey"], capture=True).stdout.strip()
+""".format(
+            wg_port=wg_port,
+            public_host=public_host,
+            pub_port=pub_port,
+            obf_key=obf_key,
+            masking=masking,
+        ),
+        0o600,
+        dry_run,
+    )
 
     client_wg = pkg / "client-wg.conf"
-    write_file(client_wg, f"""[Interface]
-PrivateKey = {cli_priv}
+    write_file(
+        client_wg,
+        """[Interface]
+PrivateKey = {private_key}
 Address = {client_ip}/{prefix}
 DNS = 1.1.1.1
 
 [Peer]
-PublicKey = {srv_pub}
+PublicKey = {server_public}
 AllowedIPs = 0.0.0.0/0
 Endpoint = 127.0.0.1:{wg_port}
 PersistentKeepalive = 25
-""", 0o600, r.dry_run)
+""".format(
+            private_key=client_private_key,
+            client_ip=client_ip,
+            prefix=prefix,
+            server_public=srv_pub,
+            wg_port=wg_port,
+        ),
+        0o600,
+        dry_run,
+    )
 
     readme = pkg / "README.txt"
-    write_file(readme, f"""WireGuard + Obfuscator Client Bundle
+    write_file(
+        readme,
+        """WireGuard + Obfuscator Client Bundle
 Server: {public_host}
 Obfuscator UDP: {pub_port}
 WG (local): {wg_port}
-""", 0o644, r.dry_run)
+""".format(
+            public_host=public_host,
+            pub_port=pub_port,
+            wg_port=wg_port,
+        ),
+        0o644,
+        dry_run,
+    )
 
-    zip_path = EXPORT_ROOT / f"wg-client-{public_host.replace(':','_')}-{pub_port}.zip"
-    if r.dry_run:
+
+def _make_zip_archive(pkg: Path, export_root: Path, zip_name: str, dry_run: bool) -> Path:
+    zip_path = export_root / zip_name
+    if dry_run:
         print(f"[DRY-RUN] Would create ZIP {zip_path}")
-    else:
-        if zip_path.exists(): zip_path.unlink()
-        shutil.make_archive(zip_path.with_suffix(""), "zip", root_dir=pkg)
-        sums = (EXPORT_ROOT / "SHA256SUMS.txt")
-        sums.write_text(r.shell(f"sha256sum {zip_path}", capture=True).stdout)
+        return zip_path
+
+    if zip_path.exists():
+        zip_path.unlink()
+
+    base_name = str(zip_path.with_suffix(""))
+    shutil.make_archive(base_name, "zip", root_dir=pkg)
+    return zip_path
+
+
+def _write_checksum(zip_path: Path, export_root: Path, dry_run: bool) -> None:
+    if dry_run:
+        print(f"[DRY-RUN] Would compute SHA256 for {zip_path}")
+        return
+
+    sha256 = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+    sums_path = export_root / "SHA256SUMS.txt"
+    sums_path.write_text(f"{sha256}  {zip_path.name}\n", encoding="utf-8")
+
+
+def build_client_bundle(
+    *,
+    public_host: str,
+    pub_port: int,
+    wg_port: int,
+    client_ip: str,
+    prefix: int,
+    masking: str,
+    obf_key: str,
+    r: Runner,
+) -> Path:
+    """Create a distributable client bundle containing WireGuard and obfuscator configs."""
+
+    EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    pkg_dir = EXPORT_ROOT / "pkg"
+    _ensure_clean_pkg_dir(pkg_dir, r.dry_run)
+
+    srv_pub = _read_server_public_key(r.dry_run)
+    client_private_key = _generate_client_private_key(r)
+
+    _write_client_configs(
+        pkg_dir,
+        public_host=public_host,
+        pub_port=pub_port,
+        wg_port=wg_port,
+        client_ip=client_ip,
+        prefix=prefix,
+        masking=masking,
+        obf_key=obf_key,
+        srv_pub=srv_pub,
+        client_private_key=client_private_key,
+        dry_run=r.dry_run,
+    )
+
+    zip_filename = f"wg-client-{public_host.replace(':', '_')}-{pub_port}.zip"
+    zip_path = _make_zip_archive(pkg_dir, EXPORT_ROOT, zip_filename, r.dry_run)
+    _write_checksum(zip_path, EXPORT_ROOT, r.dry_run)
 
     return zip_path
