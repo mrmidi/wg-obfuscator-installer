@@ -8,7 +8,7 @@ OBF_CONF = Path("/etc/wg-obfuscator.conf")
 OBF_SERVICE = Path("/etc/systemd/system/wg-obfuscator.service")
 WG_INT  = "wg0"
 
-def ensure_built(r: Runner) -> None:
+def ensure_obfuscator_built(r: Runner) -> None:
     if Path(OBF_BIN).exists():
         print("[wg-installer] wg-obfuscator binary already present; skipping build.")
         return
@@ -18,21 +18,19 @@ def ensure_built(r: Runner) -> None:
     r.run(["make", "-C", src])
     r.run(["make", "-C", src, "install"])
 
-def ensure_conf(pub_port: int, wg_port: int, masking: str, r: Runner, state_put) -> None:
+def ensure_obfuscator_conf(config, r: Runner) -> str:
     if OBF_CONF.exists():
         print("[wg-installer] Keeping existing", OBF_CONF)
-        return
+        return "existing"  # dummy
     obf_key = "<random-generated-on-apply>" if r.dry_run else r.shell(
         "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'", capture=True).stdout.strip()
-    if not r.dry_run:
-        state_put("obf_key", obf_key, False)
     content = (
         "# wg-obfuscator server config (IPv4-only public edge)\n"
         f"source-if = 0.0.0.0\n"
-        f"source-lport = {pub_port}\n"
-        f"target = 127.0.0.1:{wg_port}\n"
+        f"source-lport = {config.pub_port}\n"
+        f"target = 127.0.0.1:{config.wg_port}\n"
         f"key = {obf_key}\n"
-        f"masking = {masking}\n"
+        f"masking = {config.masking}\n"
         "verbose = INFO\n"
         "idle-timeout = 300\n"
     )
@@ -54,6 +52,7 @@ def ensure_conf(pub_port: int, wg_port: int, masking: str, r: Runner, state_put)
         "WantedBy=multi-user.target\n"
     )
     write_file(OBF_SERVICE, service, 0o644, r.dry_run)
+    return obf_key
 
 def enable_services(r: Runner) -> None:
     r.run(["systemctl", "enable", f"wg-quick@{WG_INT}.service"], check=False)

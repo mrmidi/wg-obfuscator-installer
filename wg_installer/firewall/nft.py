@@ -9,7 +9,7 @@ NFT_SNIPPET = NFT_DIR / "50-wg-installer.nft"
 NFT_TABLE_FILT = "wginst"
 NFT_TABLE_NAT  = "wginst_nat"
 
-def apply_rules(wan: str, pub_port: int, wg_port: int, wg_subnet: str, r: Runner) -> None:
+def apply_rules(config, wan: str, r: Runner) -> None:
     snippet = f"""# Managed by wg-installer. Do not edit manually.
 table inet {NFT_TABLE_FILT} {{
   chain input {{
@@ -18,8 +18,8 @@ table inet {NFT_TABLE_FILT} {{
     ip protocol icmp icmp type echo-request accept
     iif "lo" accept
     tcp dport 22 accept
-    udp dport {pub_port} accept
-    udp dport {wg_port} iifname != "lo" drop
+    udp dport {config.pub_port} accept
+    udp dport {config.wg_port} iifname != "lo" drop
   }}
   chain forward {{
     type filter hook forward priority 0;
@@ -31,7 +31,7 @@ table inet {NFT_TABLE_FILT} {{
 table ip {NFT_TABLE_NAT} {{
   chain postrouting {{
     type nat hook postrouting priority 100;
-    oifname "{wan}" ip saddr {wg_subnet} masquerade
+    oifname "{wan}" ip saddr {config.wg_subnet} masquerade
   }}
 }}
 """

@@ -28,14 +28,16 @@ def ensure_keys(r: Runner) -> None:
 def wg_private_key_text(r: Runner) -> str:
     return "<kept-existing-or-generated>" if r.dry_run else WG_PRIV.read_text().strip()
 
-def create_server_conf(server_ip: str, prefix: int, wg_port: int, mtu: int, r: Runner) -> None:
+def create_wg_conf(config, r: Runner) -> None:
+    from wg_installer.core.config import first_host_and_client
+    server_ip, _, prefix = first_host_and_client(config.wg_subnet)
     content = (
         f"[Interface]\n"
         f"Address = {server_ip}/{prefix}\n"
-        f"ListenPort = {wg_port}\n"
+        f"ListenPort = {config.wg_port}\n"
         f"PrivateKey = {wg_private_key_text(r)}\n"
         f"SaveConfig = false\n"
-        f"MTU = {mtu}\n"
+        f"MTU = {config.mtu or 1420}\n"
     )
     if WG_CONF.exists():
         print("[wg-installer] Keeping existing", WG_CONF)

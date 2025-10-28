@@ -18,7 +18,7 @@ if [ -f "$VENV_DIR/bin/activate" ]; then
 fi
 
 # Install package with [tui] extras
-"$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR[tui]"
+"$VENV_DIR/bin/pip" install -e "$SCRIPT_DIR"[tui]
 
 # Run the CLI
-exec "$VENV_DIR/bin/python" -m wg_installer "$@"
+exec "$VENV_DIR/bin/wg-installer" "$@"
