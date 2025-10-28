@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Robust script directory resolution
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Re-exec as root for system tasks
 if [ "$(id -u)" -ne 0 ]; then
   if command -v sudo >/dev/null 2>&1; then
-    exec sudo -E bash "$0" "$ @"
+    # forward all args correctly
+    exec sudo -E bash "$0" "$@"
   fi
   echo "Must run as root" >&2
   exit 1
@@ -24,7 +28,7 @@ python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 
 # Write requirements if not present (kept simple & pinned)
-REQS="$(dirname "$0")/requirements.txt"
+REQS="$SCRIPT_DIR/requirements.txt"
 if [ ! -f "$REQS" ]; then
   cat > "$REQS" <<'EOF'
 qrcode==7.4.2
@@ -36,9 +40,11 @@ fi
 "$VENV_DIR/bin/pip" install -r "$REQS"
 
 # Hand off to Python orchestrator; pass through args
-SCRIPT="$(dirname "$0")/wg_installer.py"
-if [ ! -f "$SCRIPT" ]; then
-  echo "wg_installer.py not found next to bootstrap.sh" >&2
+# Ensure the package exists (package directory or main module)
+PKG_INIT="$SCRIPT_DIR/wg_installer/__init__.py"
+PKG_MAIN="$SCRIPT_DIR/wg_installer/main.py"
+if [ ! -f "$PKG_INIT" ] && [ ! -f "$PKG_MAIN" ]; then
+  echo "wg_installer package not found next to bootstrap.sh" >&2
   exit 1
 fi
 

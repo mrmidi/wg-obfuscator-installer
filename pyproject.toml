@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wg-obfuscator-installer"
+version = "0.1.0"
+description = "Installer for wg-obfuscator and WireGuard on Debian/Ubuntu systems."
+readme = "README.md"
+authors = [ { name = "Your Name", email = "you@example.com" } ]
+license = { text = "MIT" }
+dependencies = [
+  "qrcode==7.4.2",
+  "Pillow==10.3.0",
+]
+
+[project.optional-dependencies]
+dev = [ "pytest" ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

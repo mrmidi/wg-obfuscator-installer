@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Test and build artifacts
+.pytest_cache/
+.mypy_cache/
+build/
+dist/
+*.egg-info/
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Coverage
+coverage.xml
+.coverage
+
+# Logs
+logs/
+*.log
+
+# Keys / sensitive
+keys/
+*.pem
+
+# Installer state (created by this project)
+/var/lib/wg-installer/
