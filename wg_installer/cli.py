@@ -11,7 +11,9 @@ from wg_installer.obfuscator.manager import ensure_obfuscator_built, ensure_obfu
 from wg_installer.firewall.nft import apply_rules
 from wg_installer.core.fs import write_file
 from wg_installer.export.bundle import build_client_bundle
+from wg_installer.export.http_share import serve_zip
 from wg_installer.tui.wizard import run_tui
+from wg_installer.core.state import StateDB
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="wg-installer", add_help=True)
@@ -20,7 +22,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="Show actions without changing system")
     p.add_argument("--no-tui", action="store_true", help="Run in CLI mode instead of TUI")
     p.add_argument("--http-share", action="store_true", help="Start temporary HTTP share with QR codes")
+    p.add_argument("--http-port", type=int, default=8080, help="Port for HTTP share")
     p.add_argument("--uninstall", action="store_true", help="Revert installation (stop services, remove files)")
+    p.add_argument("--build-apk", action="store_true", help="Build Android APK with injected config")
+    p.add_argument("--apk-output-dir", type=Path, default=None, help="Directory to save the built APK")
     return p
 
 def init_i18n(args) -> Translator:
@@ -170,6 +175,8 @@ def main() -> int:
             masking=tui_config.masking,
             mtu=tui_config.mtu,
         )
+        args.http_share = args.http_share or tui_config.http_share
+        args.build_apk = args.build_apk or tui_config.build_apk
     else:
         # CLI mode - use defaults for now
         config = Config(
@@ -225,8 +232,15 @@ def main() -> int:
     )
 
     if args.http_share:
-        # TODO: start HTTP share
-        pass
+        serve_zip(config.public_host, args.http_port, zip_path.name, r)
+
+    if args.build_apk:
+        from wg_installer.android.builder import AndroidAPKBuilder, AndroidBuildConfig
+        state_db = StateDB(Path("/var/lib/wg-installer/state.json"))
+        build_config = AndroidBuildConfig(apk_output_dir=args.apk_output_dir or Path("/var/lib/wg-installer/export"))
+        builder = AndroidAPKBuilder(build_config, r, state_db)
+        apk_path = builder.build_apk(config)
+        print(f"APK built: {apk_path}")
 
     print("Installation complete")
     return 0

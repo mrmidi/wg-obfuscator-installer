@@ -8,6 +8,8 @@ from wg_installer.core.config import Config
 from wg_installer.core.runner import Runner
 from wg_installer.net.detect import detect_wan_iface_and_cidr
 from wg_installer.export.bundle import build_client_bundle
+from wg_installer.android.builder import AndroidAPKBuilder, AndroidBuildConfig
+from wg_installer.core.state import StateDB
 
 class TestCore(unittest.TestCase):
 
@@ -75,6 +77,29 @@ class TestCore(unittest.TestCase):
                 r=runner
             )
             self.assertFalse(zip_path.exists())
+
+    def test_android_builder_dry_run(self):
+        runner = Runner(dry_run=True)
+        config = AndroidBuildConfig(build_dir=Path(tempfile.mkdtemp()))
+        state_db = StateDB(Path(tempfile.mktemp()))
+        builder = AndroidAPKBuilder(config, runner, state_db)
+        server_config = Config(
+            public_host="1.2.3.4",
+            pub_port=12345,
+            wg_port=54321,
+            wg_subnet="10.0.0.0/24",
+            masking="STUN",
+            mtu=1420
+        )
+        # In dry-run, it should not actually build, but we can check it doesn't raise
+        with patch.object(builder.runner, 'run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            try:
+                apk_path = builder.build_apk(server_config)
+                # Since dry-run, apk_path might not exist, but method should complete
+                self.assertIsInstance(apk_path, Path)
+            except Exception as e:
+                self.fail(f"build_apk raised an exception in dry-run: {e}")
 
 if __name__ == '__main__':
     unittest.main()

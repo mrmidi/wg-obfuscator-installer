@@ -162,8 +162,6 @@ def run_tui(
     if build_apk is None:
         return None
 
-    # TODO: Implement build_apk functionality for Android APK generation
-
     return Config(
         public_host=public_host.strip(),
         pub_port=int(pub_port_s),

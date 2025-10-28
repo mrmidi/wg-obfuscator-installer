@@ -15,6 +15,7 @@ class TuiConfig:
     masking: str
     mtu: int
     http_share: bool
+    build_apk: bool
 
 def run_tui(tr, defaults) -> TuiConfig | None:
     if questionary is None or not sys.stdin.isatty() or not sys.stdout.isatty():
@@ -50,5 +51,7 @@ def run_tui(tr, defaults) -> TuiConfig | None:
     if masking is None: return None
     http_share = questionary.confirm(tr.t("tui.http_share"), default=False).ask()
     if http_share is None: return None
+    build_apk = questionary.confirm(tr.t("tui.build_apk"), default=False).ask()
+    if build_apk is None: return None
     return TuiConfig(public_host.strip(), int(pub_port), int(wg_port), wg_subnet.strip(),
-                     masking.strip().upper(), int(mtu), bool(http_share))
+                     masking.strip().upper(), int(mtu), bool(http_share), bool(build_apk))
