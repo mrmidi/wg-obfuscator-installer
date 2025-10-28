@@ -49,26 +49,22 @@ def _write_client_configs(
     dry_run: bool,
 ) -> None:
     client_obf = pkg / "client-obf.conf"
-    write_file(
-        client_obf,
-        """# wg-obfuscator client config
-source-if = 127.0.0.1
-source-lport = {wg_port}
-target = {public_host}:{pub_port}
-key = {obf_key}
-masking = {masking}
-verbose = INFO
-idle-timeout = 300
-""".format(
-            wg_port=wg_port,
-            public_host=public_host,
-            pub_port=pub_port,
-            obf_key=obf_key,
-            masking=masking,
-        ),
-        0o600,
-        dry_run,
-    )
+    # Write client obfuscator config. Omit the `key` line if obf_key is
+    # falsy (installer chose not to create a separate obfuscation key).
+    obf_lines = [
+        "# wg-obfuscator client config",
+        "source-if = 127.0.0.1",
+        f"source-lport = {wg_port}",
+        f"target = {public_host}:{pub_port}",
+    ]
+    if obf_key:
+        obf_lines.append(f"key = {obf_key}")
+    obf_lines.extend([
+        f"masking = {masking}",
+        "verbose = INFO",
+        "idle-timeout = 300",
+    ])
+    write_file(client_obf, "\n".join(obf_lines) + "\n", 0o600, dry_run)
 
     client_wg = pkg / "client-wg.conf"
     write_file(
@@ -81,13 +77,14 @@ DNS = 1.1.1.1
 [Peer]
 PublicKey = {server_public}
 AllowedIPs = 0.0.0.0/0
-Endpoint = 127.0.0.1:{wg_port}
+Endpoint = {public_host}:{wg_port}
 PersistentKeepalive = 25
 """.format(
             private_key=client_private_key,
             client_ip=client_ip,
             prefix=prefix,
             server_public=srv_pub,
+            public_host=public_host,
             wg_port=wg_port,
         ),
         0o600,
@@ -98,10 +95,10 @@ PersistentKeepalive = 25
     write_file(
         readme,
         """WireGuard + Obfuscator Client Bundle
-Server: {public_host}
-Obfuscator UDP: {pub_port}
-WG (local): {wg_port}
-""".format(
+    Server: {public_host}
+    Obfuscator UDP: {pub_port}
+    WG (public): {wg_port}
+    """.format(
             public_host=public_host,
             pub_port=pub_port,
             wg_port=wg_port,

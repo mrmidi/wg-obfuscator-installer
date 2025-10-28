@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import sys
+import secrets
 from pathlib import Path
 from wg_installer.i18n.i18n import Translator
 from wg_installer.core.runner import Runner
@@ -27,6 +28,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--uninstall", action="store_true", help="Revert installation (stop services, remove files)")
     p.add_argument("--build-apk", action="store_true", help="Build Android APK with injected config")
     p.add_argument("--apk-output-dir", type=Path, default=None, help="Directory to save the built APK")
+    # We do not provide an option to block WireGuard externally. WireGuard
+    # UDP port is exposed so wg-obfuscator can obfuscate live connections.
+    # New: allow passing a specific obfuscator key as text. If provided,
+    # that exact text will be used. For non-interactive installs you can
+    # use --obf-key "<key>". For older behavior (auto-generate a key),
+    # use --create-obf-key which will create a random key and include it.
+    p.add_argument("--obf-key", type=str, default=None,
+                   help="Set obfuscator key (text). If omitted, no key line will be written.")
+    p.add_argument("--create-obf-key", action="store_true", default=False,
+                   help="Generate a random wg-obfuscator key and include it in configs")
     return p
 
 def init_i18n(args) -> Translator:
@@ -155,10 +166,12 @@ def main() -> int:
 
     # Defaults for TUI
     defaults = {
+        # Default to auto-detect the public host; the installer will only
+        # try to detect a WAN address when `public_host` == "auto".
         "host": "auto",
         "pub_port": 3478,
         "wg_port": 51820,
-        "wg_subnet": "10.0.0.0/24",
+        "wg_subnet": "10.7.0.0/24",
         "masking": "STUN",
         "mtu": 1420,
     }
@@ -174,6 +187,8 @@ def main() -> int:
             default_mtu=defaults["mtu"],
             default_http_share=False,
             default_build_apk=False,
+            # block_wg removed — we always expose WireGuard public port
+            default_create_obf_key=False,
         )
         if cfg is None:
             # fallback to old TUI
@@ -187,6 +202,8 @@ def main() -> int:
                 wg_subnet=tui_config.wg_subnet,
                 masking=tui_config.masking,
                 mtu=tui_config.mtu,
+                # block_wg removed
+                create_obf_key=getattr(tui_config, "create_obf_key", None),
             )
             args.http_share = args.http_share or tui_config.http_share
             args.build_apk = args.build_apk or tui_config.build_apk
@@ -198,18 +215,33 @@ def main() -> int:
                 wg_subnet=cfg.wg_subnet,
                 masking=cfg.masking,
                 mtu=cfg.mtu,
+                # block_wg removed
+                create_obf_key=getattr(cfg, "create_obf_key", None),
             )
             args.http_share = args.http_share or cfg.http_share
             args.build_apk = args.build_apk or cfg.build_apk
     else:
         # CLI mode - use defaults for now
+        # Determine obfuscator key for non-interactive CLI mode. Priority:
+        # 1) --obf-key explicit string
+        # 2) --create-obf-key -> generate a random key
+        # 3) omitted -> None (no key line will be written)
+        obf_key_val = None
+        if getattr(args, "obf_key", None):
+            obf_key_val = args.obf_key.strip() or None
+        elif getattr(args, "create_obf_key", False):
+            # generate a reasonably random URL-safe token
+            obf_key_val = secrets.token_urlsafe(24)
+
         config = Config(
-            public_host="auto",  # Will be detected
+            public_host="auto",
             pub_port=3478,
             wg_port=51820,
-            wg_subnet="10.0.0.0/24",
+            wg_subnet="10.7.0.0/24",
             masking="STUN",
-            mtu=1420
+            mtu=1420,
+            # block_wg removed
+            create_obf_key=obf_key_val,
         )
 
     # Detect public host if auto

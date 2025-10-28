@@ -28,6 +28,7 @@ class Config:
     mtu: int
     http_share: bool
     build_apk: bool
+    create_obf_key: bool
 
 def _validate_port(value: str) -> tuple[bool, str]:
     try:
@@ -64,19 +65,11 @@ class _FormSubmitted(Message):
         super().__init__()
 
 class WgWizard(App):
+    # Simplified, minimal styling to mimic ncurses-like appearance.
     CSS = """
     Screen { align: center middle; }
-    Grid {
-        grid-size: 2;
-        grid-gutter: 1 2;
-        width: 80;
-        border: solid green;
-        padding: 1;
-    }
-    Label { text-style: bold; }
+    Grid { grid-size: 2; grid-gutter: 1 2; width: 80; }
     .error { color: red; height: 1; }
-    Button#submit { background: green; color: black; }
-    Button#cancel { background: gray; color: black; }
     """
 
     def __init__(
@@ -89,6 +82,7 @@ class WgWizard(App):
         default_mtu: int,
         default_http_share: bool,
         default_build_apk: bool,
+        default_create_obf_key: str | None = None,
     ) -> None:
         super().__init__()
         self._defaults = dict(
@@ -100,6 +94,7 @@ class WgWizard(App):
             mtu=str(default_mtu),
             http_share=bool(default_http_share),
             build_apk=bool(default_build_apk),
+            create_obf_key=(default_create_obf_key or "") if default_create_obf_key is not None else "",
         )
         self.result_cfg: Optional[Config] = None
 
@@ -113,7 +108,9 @@ class WgWizard(App):
             Label("MTU:"),                 Input(self._defaults["mtu"], id="mtu"),
             Label("Masking:"),             Select(((m, m) for m in ALLOWED_MASKING), id="masking", value=self._defaults["masking"]),
             Label("HTTP share?"),          Switch(value=self._defaults["http_share"], id="http_share"),
-            Label("Build Android APK?"),   Switch(value=self._defaults["build_apk"], id="build_apk"),
+            # Android APK option hidden for now. Re-enable if needed:
+            # Label("Build Android APK?"),   Switch(value=self._defaults["build_apk"], id="build_apk"),
+            Label("Obfuscator key (leave empty to omit):"), Input(self._defaults.get("create_obf_key", ""), id="create_obf_key"),
             Label("", id="err", classes="error", expand=False),
             Button("Submit", id="submit"), Button("Cancel", id="cancel"),
         )
@@ -144,7 +141,9 @@ class WgWizard(App):
         mtu_s       = val("mtu")
         masking     = val("masking")
         http_share  = (val("http_share") == "true")
-        build_apk   = (val("build_apk") == "true")
+        # build_apk UI is hidden; keep default False unless provided programmatically
+        build_apk   = (val("build_apk") == "true") if self._defaults.get("build_apk", False) else False
+        create_obf_key = val("create_obf_key")
 
         if not public_host:
             return self._error("Public host must not be empty.")
@@ -169,6 +168,7 @@ class WgWizard(App):
             mtu=int(mtu_s),
             http_share=http_share,
             build_apk=build_apk,
+            create_obf_key=create_obf_key.strip() if create_obf_key and create_obf_key.strip() else None,
         )
         self.result_cfg = cfg
         # Write JSON to stdout so caller can consume non-interactively if desired
@@ -188,6 +188,7 @@ def run_textual_wizard(
     default_mtu: int = 1420,
     default_http_share: bool = False,
     default_build_apk: bool = False,
+    default_create_obf_key: bool = False,
 ) -> Optional[Config]:
     """
     Returns Config if completed, None if cancelled or Textual/TTY unavailable.
@@ -200,6 +201,7 @@ def run_textual_wizard(
         default_public_host, default_pub_port, default_wg_port,
         default_wg_subnet, default_masking, default_mtu,
         default_http_share, default_build_apk,
+        default_create_obf_key,
     )
     # Textual runs its own event loop; return the captured result.
     app.run()  # blocks until exit

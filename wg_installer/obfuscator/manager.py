@@ -35,18 +35,31 @@ def ensure_obfuscator_conf(config, r: Runner) -> str:
         except Exception:
             pass
         return "existing"  # fallback
-    obf_key = "<random-generated-on-apply>" if r.dry_run else r.shell(
-        "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'", capture=True).stdout.strip()
-    content = (
-        "# wg-obfuscator server config (IPv4-only public edge)\n"
-        f"source-if = 0.0.0.0\n"
-        f"source-lport = {config.pub_port}\n"
-        f"target = 127.0.0.1:{config.wg_port}\n"
-        f"key = {obf_key}\n"
-        f"masking = {config.masking}\n"
-        "verbose = INFO\n"
-        "idle-timeout = 300\n"
-    )
+    # The obfuscator key is optional. If `create_obf_key` is provided as a
+    # non-empty string it will be used verbatim. If it is None/empty we omit
+    # the `key =` line.
+    obf_key = ""
+    key_val = getattr(config, "create_obf_key", None)
+    if key_val:
+        # Use the provided key string (strip whitespace).
+        obf_key = str(key_val).strip()
+
+    parts = [
+        "# wg-obfuscator server config (IPv4-only public edge)\n",
+        f"source-if = 0.0.0.0\n",
+        f"source-lport = {config.pub_port}\n",
+        # Forward obfuscated UDP to the WireGuard listener on the server's
+        # public IP so obfuscator can hand traffic to WireGuard directly.
+        f"target = {config.public_host}:{config.wg_port}\n",
+    ]
+    if obf_key:
+        parts.append(f"key = {obf_key}\n")
+    parts.extend([
+        f"masking = {config.masking}\n",
+        "verbose = INFO\n",
+        "idle-timeout = 300\n",
+    ])
+    content = "".join(parts)
     write_file(OBF_CONF, content, 0o600, r.dry_run)
 
     service = (

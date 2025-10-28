@@ -351,14 +351,15 @@ MTU = {mtu}
             obf_key = subprocess.check_output(["bash", "-lc", "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'"], text=True).strip()
             json_put("obf_key", obf_key, dry=False)
         content = f'''# wg-obfuscator server config (IPv4-only public edge)
-source-if = 0.0.0.0
-source-lport = {pub_port}
-target = 127.0.0.1:{wg_port}
-key = {obf_key}
-masking = {masking}
-verbose = INFO
-idle-timeout = 300
-'''
+    source-if = 0.0.0.0
+    source-lport = {pub_port}
+    # Forward obfuscated UDP to the WireGuard listener on the server's public IP
+    target = {self.wan_cidr.split('/')[0] if self.wan_cidr else '0.0.0.0'}:{wg_port}
+    key = {obf_key}
+    masking = {masking}
+    verbose = INFO
+    idle-timeout = 300
+    '''
         write_file(OBF_CONF, content, 0o600, self.dry)
 
         service = f'''[Unit]
@@ -392,15 +393,15 @@ WantedBy=multi-user.target
         snippet = f'''# Managed by wg-installer. Do not edit manually.
 # Filter table (inet)
 table inet {NFT_TABLE_FILT} {{
-  chain input {{
-    type filter hook input priority 0;
-    ct state established,related accept
-    ip protocol icmp icmp type echo-request accept
-    iif "lo" accept
-    tcp dport 22 accept
-    udp dport {self.config.pub_port} accept
-    udp dport {self.config.wg_port} iifname != "lo" drop
-  }}
+    chain input {{
+        type filter hook input priority 0;
+        ct state established,related accept
+        ip protocol icmp icmp type echo-request accept
+        iif "lo" accept
+        tcp dport 22 accept
+        udp dport {self.config.pub_port} accept
+        udp dport {self.config.wg_port} accept
+    }}
   chain forward {{
     type filter hook forward priority 0;
     ct state established,related accept
@@ -473,37 +474,37 @@ idle-timeout = 300
 
         client_wg = pkg / "client-wg.conf"
         write_file(client_wg, f'''[Interface]
-PrivateKey = {cli_priv}
-Address = {client_ip}/{prefix}
-DNS = 1.1.1.1
+    PrivateKey = {cli_priv}
+    Address = {client_ip}/{prefix}
+    DNS = 1.1.1.1
 
-[Peer]
-PublicKey = {srv_pub}
-AllowedIPs = 0.0.0.0/0
-Endpoint = 127.0.0.1:{self.config.wg_port}
-PersistentKeepalive = 25
-''', 0o600, self.dry)
+    [Peer]
+    PublicKey = {srv_pub}
+    AllowedIPs = 0.0.0.0/0
+    Endpoint = {self.config.public_host}:{self.config.wg_port}
+    PersistentKeepalive = 25
+    ''', 0o600, self.dry)
 
         readme = pkg / "README.txt"
-        write_file(readme, f'''WireGuard + Obfuscator Client Bundle
-====================================
+            write_file(readme, f'''WireGuard + Obfuscator Client Bundle
+        ====================================
 
-Server: {self.config.public_host}
-Obfuscator public UDP: {self.config.pub_port}
-WG internal (loopback-only on server): {self.config.wg_port}
+        Server: {self.config.public_host}
+        Obfuscator public UDP: {self.config.pub_port}
+        WG (public): {self.config.wg_port}
 
-Files:
-  - client-obf.conf    (wg-obfuscator CLIENT -> talks to {self.config.public_host}:{self.config.pub_port})
-  - client-wg.conf     (WireGuard -> connects to 127.0.0.1:{self.config.wg_port})
+        Files:
+          - client-obf.conf    (wg-obfuscator CLIENT -> talks to {self.config.public_host}:{self.config.pub_port})
+          - client-wg.conf     (WireGuard -> connects to {self.config.public_host}:{self.config.wg_port})
 
-Linux/macOS quickstart:
-  1) Start obfuscator client:
-       sudo wg-obfuscator --config ./client-obf.conf
-  2) Start WireGuard:
-       sudo wg-quick up ./client-wg.conf
-  3) Stop:
-       sudo wg-quick down ./client-wg.conf
-''', 0o644, self.dry)
+        Linux/macOS quickstart:
+          1) Start obfuscator client:
+              sudo wg-obfuscator --config ./client-obf.conf
+          2) Start WireGuard:
+              sudo wg-quick up ./client-wg.conf
+          3) Stop:
+              sudo wg-quick down ./client-wg.conf
+        ''', 0o644, self.dry)
 
         zip_name = f"wg-client-{self.config.public_host.replace(':','_')}-{self.config.pub_port}.zip"
         zip_path = EXPORT_ROOT / zip_name
@@ -715,19 +716,43 @@ Linux/macOS quickstart:
             url_zip = f"http://{self.config.public_host}:{HTTP_SHARE_DEFAULT_PORT}/{zip_file}"
 
             # index.html
-            html = f'''<!doctype html>
+                        # Prepare APK download (remote upstream) and include it in share
+                        APK_REMOTE_URL = "https://clusterm.github.io/wg-obfuscator-android/wg-obfuscator-v2-debug-250929-001531.apk"
+                        apk_dir = EXPORT_ROOT / "apk"
+                        apk_dir.mkdir(parents=True, exist_ok=True)
+                        apk_filename = APK_REMOTE_URL.split('/')[-1]
+                        apk_rel_path = f"apk/{apk_filename}"
+                        apk_path = apk_dir / apk_filename
+                        if self.dry:
+                                print(f"[DRY-RUN] Would download APK from {APK_REMOTE_URL} to {apk_path}")
+                        else:
+                                # Download only if not already present to avoid repeated network calls
+                                try:
+                                        if not apk_path.exists():
+                                                import urllib.request
+                                                urllib.request.urlretrieve(APK_REMOTE_URL, str(apk_path))
+                                                print(f"[wg-installer] Downloaded APK to {apk_path}")
+                                except Exception as e:
+                                        print(f"[WARN] Could not download APK: {e}")
+
+                        html = f'''<!doctype html>
 <meta charset="utf-8">
 <title>WG Client Share</title>
 <h1>WireGuard Client Download</h1>
 <ul>
-  <li><a href="{zip_file}">{zip_file}</a></li>
+    <li><a href="{zip_file}">{zip_file}</a></li>
+    <li><a href="{apk_rel_path}">{apk_filename}</a></li>
 </ul>
-<h2>QR Code</h2>
+<h2>QR Codes</h2>
 <p><img src="qr/client-zip.png" alt="ZIP QR" style="width:240px"></p>
+<p><img src="qr/client-apk.png" alt="APK QR" style="width:240px"></p>
 '''
             write_file(EXPORT_ROOT / "index.html", html, 0o644, self.dry)
             qr_dir = EXPORT_ROOT / "qr"
-            qr_print_and_png(url_zip, qr_dir / "client-zip.png", self.dry)
+                        qr_print_and_png(url_zip, qr_dir / "client-zip.png", self.dry)
+                        # APK URL served from our export dir
+                        url_apk = f"http://{self.config.public_host}:{HTTP_SHARE_DEFAULT_PORT}/{apk_rel_path}"
+                        qr_print_and_png(url_apk, qr_dir / "client-apk.png", self.dry)
 
             # Temp nft rule
             handle = self.add_temp_nft_input_rule()
@@ -743,7 +768,7 @@ Linux/macOS quickstart:
         print(f"  {self.tr.t('summary.wireguard.interface')}: {WG_INT_NAME}")
         print(f"  {self.tr.t('summary.wireguard.config')}: {WG_CONF}")
         print(f"  {self.tr.t('summary.wireguard.subnet')}: {self.config.wg_subnet}")
-        print(f"  {self.tr.t('summary.wireguard.listen')}: 127.0.0.1:{self.config.wg_port} ({self.tr.t('summary.wireguard.listen_enforced')})")
+        print(f"  {self.tr.t('summary.wireguard.listen')}: {self.config.public_host}:{self.config.wg_port}")
         print("")
         print(self.tr.t("summary.obfuscator.title"))
         print(f"  {self.tr.t('summary.obfuscator.binary')}: {OBF_BIN}")

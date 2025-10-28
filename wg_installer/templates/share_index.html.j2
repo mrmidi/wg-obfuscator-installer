@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WG Client Share</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-3xl mx-auto p-6">
+    <h1 class="text-2xl font-semibold mb-4">WireGuard Client Downloads</h1>
+
+    <section class="mb-6 bg-white p-4 rounded shadow">
+      <h2 class="text-lg font-medium mb-2">Files</h2>
+      <ul class="list-disc list-inside">
+      {% for item in links %}
+        <li><a class="text-indigo-600 hover:underline" href="{{ item.href }}">{{ item.label }}</a></li>
+      {% endfor %}
+      </ul>
+    </section>
+
+    <section class="mb-6 bg-white p-4 rounded shadow">
+      <h2 class="text-lg font-medium mb-2">QR Codes</h2>
+      <div class="flex flex-wrap gap-4">
+        {% for img in qr_images %}
+        <div class="w-40 text-center">
+          <img class="mx-auto border" src="{{ img.src }}" alt="{{ img.alt }}" style="width:240px;height:240px;object-fit:contain">
+          <div class="text-sm mt-2">{{ img.caption }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <footer class="text-xs text-gray-500 mt-8">Served from {{ public_host }}:{{ port }}</footer>
+  </div>
+</body>
+</html>

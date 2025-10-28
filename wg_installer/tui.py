@@ -25,6 +25,8 @@ class Config:
     mtu: int
     http_share: bool
     build_apk: bool
+    # Optional obfuscator key text. Empty/None means omit key.
+    create_obf_key: str | None
 
 
 ALLOWED_MASKING = ("STUN", "AUTO", "NONE")
@@ -155,11 +157,25 @@ def run_tui(
     if http_share is None:
         return None
 
-    build_apk = questionary.confirm(
-        tr.t("tui.build_apk"),
-        default=bool(default_build_apk),
+    # The Android APK build option is temporarily hidden in the TUI.
+    # If you need it again, re-enable the question below.
+    # build_apk = questionary.confirm(
+    #     tr.t("tui.build_apk"),
+    #     default=bool(default_build_apk),
+    # ).ask()
+    # if build_apk is None:
+    #     return None
+
+    # We no longer ask about blocking WireGuard; the port is intentionally exposed
+    # so wg-obfuscator can obfuscate live connections.
+
+    # Ask user to optionally provide an obfuscator key (text). Leave blank
+    # to omit a key and rely on WireGuard's crypto.
+    create_obf_key = questionary.text(
+        "Obfuscator key (leave empty to omit)",
+        default="",
     ).ask()
-    if build_apk is None:
+    if create_obf_key is None:
         return None
 
     return Config(
@@ -170,5 +186,6 @@ def run_tui(
         masking=masking.strip().upper(),
         mtu=int(mtu_s),
         http_share=bool(http_share),
-        build_apk=bool(build_apk),
+        build_apk=False,
+        create_obf_key=create_obf_key.strip() if create_obf_key and create_obf_key.strip() else None,
     )

@@ -11,6 +11,15 @@ class Config(BaseModel):
     wg_subnet: str
     masking: str
     mtu: int | None = None
+    # Whether to expose the WireGuard UDP port on the public interface.
+    # Default False -> hide (secure) mode where direct WG traffic is blocked
+    # except via the obfuscator. Set True to expose the WG port publicly.
+    expose_wg_port: bool = False
+
+    # Optional obfuscator key (plain text). If None/empty, no `key =` line
+    # will be written and wg-obfuscator will rely on WireGuard's crypto.
+    # If supplied, the exact text will be used as the obfuscation key.
+    create_obf_key: str | None = None
 
     @field_validator('pub_port', 'wg_port')
     @classmethod

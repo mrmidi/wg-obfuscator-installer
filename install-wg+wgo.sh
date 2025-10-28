@@ -215,10 +215,12 @@ json_put() {
   if ! command -v jq >/dev/null 2>&1; then
     tmp="$(mktemp)"
     if grep -q "\"$key\"" "$STATE_FILE"; then
-      sed "s/\"$key\": *\"[^\"]*\"/\"$key\":\"$val\"/" "$STATE_FILE" > "$tmp"
+      # Use '|' as sed delimiter so '/' in values (eg. CIDRs) don't break the expression.
+      sed "s|\"$key\": *\"[^\"]*\"|\"$key\":\"$val\"|" "$STATE_FILE" > "$tmp"
     else
       sed 's/}$/,"__PLACEHOLDER__":""}/' "$STATE_FILE" > "$tmp"
-      sed -i "s/\"__PLACEHOLDER__\":\"\"/\"$key\":\"$val\"/" "$tmp"
+      # Use '|' delimiter here too for the same reason.
+      sed -i "s|\"__PLACEHOLDER__\":\"\"|\"$key\":\"$val\"|" "$tmp"
     fi
     mv "$tmp" "$STATE_FILE"
   else

@@ -87,7 +87,7 @@ class TestCore(unittest.TestCase):
             public_host="1.2.3.4",
             pub_port=12345,
             wg_port=54321,
-            wg_subnet="10.0.0.0/24",
+            wg_subnet="10.7.0.0/24",
             masking="STUN",
             mtu=1420
         )
