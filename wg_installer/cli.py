@@ -10,6 +10,7 @@ from wg_installer.wireguard.manager import ensure_keys, create_wg_conf
 from wg_installer.obfuscator.manager import ensure_obfuscator_built, ensure_obfuscator_conf, enable_services
 from wg_installer.firewall.nft import apply_rules
 from wg_installer.core.fs import write_file
+from wg_installer.export.bundle import build_client_bundle
 from wg_installer.tui.wizard import run_tui
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,16 +87,7 @@ def ensure_packages(r: Runner) -> None:
         raise SystemExit(res.returncode)
 
     r.run(["modprobe", "wireguard"], check=False)
-    """Generate random obfuscator key. Reuses logic from bash script."""
-    if r.dry_run:
-        return "DRYRUN_OBF_KEY"
-    # head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'
-    import subprocess
-    result = subprocess.run(
-        ["sh", "-c", "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n'"],
-        capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
+    return
 
 def main() -> int:
     parser = build_parser()
