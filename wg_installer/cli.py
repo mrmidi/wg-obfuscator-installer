@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="Show actions without changing system")
     p.add_argument("--no-tui", action="store_true", help="Run in CLI mode instead of TUI")
     p.add_argument("--http-share", action="store_true", help="Start temporary HTTP share with QR codes")
+    p.add_argument("--uninstall", action="store_true", help="Revert installation (stop services, remove files)")
     return p
 
 def init_i18n(args) -> Translator:
@@ -44,6 +45,47 @@ def detect_public_host(r: Runner) -> str:
     raise SystemExit(
         "Unable to detect WAN IPv4 address. Please provide a public hostname or IPv4 address explicitly."
     )
+
+
+def uninstall(r: Runner) -> None:
+    """Best-effort revert of what the installer does. Requires explicit confirmation.
+
+    This will stop/disable services, delete installed binaries/configs/snippets and
+    remove the export/state directory. It's intentionally conservative and best-effort.
+    """
+    if not r.dry_run:
+        ans = input("This will attempt to remove wg-obfuscator, WireGuard config and installer state. Type 'yes' to proceed: ")
+        if ans.strip().lower() != "yes":
+            print("Aborting uninstall.")
+            return
+
+    print("[wg-installer] Stopping and disabling services (best-effort)")
+    r.run(["systemctl", "stop", "wg-obfuscator.service"], check=False)
+    r.run(["systemctl", "disable", "wg-obfuscator.service"], check=False)
+    r.run(["systemctl", "stop", "wg-quick@wg0.service"], check=False)
+    r.run(["systemctl", "disable", "wg-quick@wg0.service"], check=False)
+    r.run(["systemctl", "daemon-reload"], check=False)
+
+    # Remove installed binaries and config files
+    candidates = ["/usr/bin/wg-obfuscator", "/usr/local/bin/wg-obfuscator", "/etc/wg-obfuscator.conf", "/etc/systemd/system/wg-obfuscator.service", "/etc/nftables.d/50-wg-installer.nft"]
+    for p in candidates:
+        print(f"[wg-installer] Removing {p} (if exists)")
+        r.run(["rm", "-f", p], check=False)
+
+    # WireGuard server files (do not remove whole /etc/wireguard unless explicit)
+    print("[wg-installer] Removing generated WireGuard files: /etc/wireguard/wg0.conf /etc/wireguard/privatekey /etc/wireguard/publickey (if they exist)")
+    r.run(["rm", "-f", "/etc/wireguard/wg0.conf"], check=False)
+    r.run(["rm", "-f", "/etc/wireguard/privatekey"], check=False)
+    r.run(["rm", "-f", "/etc/wireguard/publickey"], check=False)
+
+    # Remove export and state
+    print("[wg-installer] Removing state and export directory /var/lib/wg-installer (if exists)")
+    r.run(["rm", "-rf", "/var/lib/wg-installer"], check=False)
+
+    # Reload nftables/systemd so changes take effect
+    r.run(["systemctl", "restart", "nftables"], check=False)
+    r.run(["systemctl", "daemon-reload"], check=False)
+    print("[wg-installer] Uninstall steps completed (best-effort). You may want to review system state manually.")
 
 def ensure_packages(r: Runner) -> None:
     """Install required system packages."""
@@ -95,6 +137,11 @@ def main() -> int:
     tr = init_i18n(args)
 
     r = Runner(dry_run=args.dry_run)
+
+    # If uninstall requested, run uninstall flow and exit
+    if args.uninstall:
+        uninstall(r)
+        return 0
 
     # Detect WAN
     wan_iface, wan_cidr = detect_wan_iface_and_cidr(r)

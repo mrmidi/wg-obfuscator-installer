@@ -20,8 +20,21 @@ def ensure_obfuscator_built(r: Runner) -> None:
 
 def ensure_obfuscator_conf(config, r: Runner) -> str:
     if OBF_CONF.exists():
+        # If a config already exists, try to read the server key from it so
+        # the client bundle can use the same key.
         print("[wg-installer] Keeping existing", OBF_CONF)
-        return "existing"  # dummy
+        try:
+            text = OBF_CONF.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                ln = line.strip()
+                if ln.startswith("key"):
+                    # format: key = <value>
+                    parts = ln.split("=", 1)
+                    if len(parts) > 1:
+                        return parts[1].strip()
+        except Exception:
+            pass
+        return "existing"  # fallback
     obf_key = "<random-generated-on-apply>" if r.dry_run else r.shell(
         "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'", capture=True).stdout.strip()
     content = (
