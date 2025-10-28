@@ -61,6 +61,13 @@ def run(cmd: list[str], dry: bool, check: bool = True, capture: bool = False):
         return subprocess.run(cmd, check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return subprocess.run(cmd, check=check)
 
+
+def _ensure_text(data: str | bytes) -> str:
+    """Return *data* as a str regardless of whether bytes were provided."""
+    if isinstance(data, bytes):
+        return data.decode()
+    return data
+
 def write_file(path: Path, content: str, mode: int, dry: bool):
     if dry:
         print(f"[DRY-RUN] Would write file: {path} (mode {oct(mode)})")
@@ -100,12 +107,12 @@ def json_put(key: str, val: str, dry: bool):
 def detect_wan_iface_and_ip() -> tuple[str, str]:
     # Parse `ip -4 route show default` and `ip -4 addr show dev ...`
     try:
-        out = subprocess.check_output(["ip", "-4", "route", "show", "default"], text=True)
+        out = _ensure_text(subprocess.check_output(["ip", "-4", "route", "show", "default"], text=True))
         wan_iface = out.strip().split()[-1]
     except Exception:
         raise SystemExit("No default IPv4 route found. IPv4 is required for wg-obfuscator.")
     try:
-        out = subprocess.check_output(["ip", "-4", "addr", "show", "dev", wan_iface], text=True)
+        out = _ensure_text(subprocess.check_output(["ip", "-4", "addr", "show", "dev", wan_iface], text=True))
         for tok in out.split():
             if tok.startswith("inet"):
                 # format: inet 203.0.113.5/24
@@ -250,7 +257,10 @@ def ensure_obfuscator_conf(pub_port: int, wg_port: int, masking: str, dry: bool)
     if dry:
         obf_key = "<random-generated-on-apply>"
     else:
-        obf_key = subprocess.check_output(["bash", "-lc", "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'"], text=True).strip()
+        obf_key = subprocess.check_output(
+            ["bash", "-lc", "head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'"],
+            text=True,
+        ).strip()
         json_put("obf_key", obf_key, dry=False)
     content = f'''# wg-obfuscator server config (IPv4-only public edge)
 source-if = 0.0.0.0
@@ -449,8 +459,18 @@ def del_temp_nft_rule(handle: str | None, dry: bool):
     except Exception:
         pass
 
+
+def ask(prompt: str, default: str, tr: Translator) -> str:
+    """Prompt the user for input while supporting mocks in tests."""
+    try:
+        text = input(f"{tr.t(prompt)} [{default}]: ")
+    except EOFError:
+        return default
+    response = text.strip()
+    return response or default
+
+
 # ---------- CLI ----------
-from wg_installer.cli import build_parser, init_i18n
 
 def main():
     parser = build_parser()
@@ -460,7 +480,7 @@ def main():
     dry = args.dry_run
 
     # Preflight
-    if not Path("/dev/net/tun").exists():
+    if not dry and not Path("/dev/net/tun").exists():
         print(tr.t("error.no_tun"), file=sys.stderr)
         sys.exit(1)
 
@@ -481,18 +501,11 @@ def main():
     wg_subnet = DEFAULT_SUBNET
     masking = DEFAULT_MASKING
 
-    def ask(prompt: str, default: str) -> str:
-        try:
-            s = input(f"{tr.t(prompt)} [{default}]: ").strip()
-            return s or default
-        except EOFError:
-            return default
-
-    pub_port = int(ask("prompt.public_port", str(pub_port)))
-    wg_port = int(ask("prompt.wg_port", str(wg_port)))
-    wg_subnet = ask("prompt.subnet", wg_subnet)
-    masking = ask("prompt.masking", masking)
-    public_host = ask("prompt.public_host", default_host)
+    pub_port = int(ask("prompt.public_port", str(pub_port), tr))
+    wg_port = int(ask("prompt.wg_port", str(wg_port), tr))
+    wg_subnet = ask("prompt.subnet", wg_subnet, tr)
+    masking = ask("prompt.masking", masking, tr)
+    public_host = ask("prompt.public_host", default_host, tr)
 
     json_put("public_port", str(pub_port), dry)
     json_put("wg_port", str(wg_port), dry)
@@ -556,25 +569,25 @@ def main():
             del_temp_nft_rule(handle, dry)
 
     # Summary
-    print(tr.t("summary.title"))
+    print(f"=== {tr.t('summary.title')} ===")
     print(tr.t("summary.wireguard.title"))
-    print(f"  {tr.t("summary.wireguard.interface")}: {WG_INT_NAME}")
-    print(f"  {tr.t("summary.wireguard.config")}: {WG_CONF}")
-    print(f"  {tr.t("summary.wireguard.subnet")}: {wg_subnet}")
-    print(f"  {tr.t("summary.wireguard.listen")}: 127.0.0.1:{wg_port} ({tr.t("summary.wireguard.listen_enforced")})")
+    print(f"  {tr.t('summary.wireguard.interface')}: {WG_INT_NAME}")
+    print(f"  {tr.t('summary.wireguard.config')}: {WG_CONF}")
+    print(f"  {tr.t('summary.wireguard.subnet')}: {wg_subnet}")
+    print(f"  {tr.t('summary.wireguard.listen')}: 127.0.0.1:{wg_port} ({tr.t('summary.wireguard.listen_enforced')})")
     print("")
     print(tr.t("summary.obfuscator.title"))
-    print(f"  {tr.t("summary.obfuscator.binary")}: {OBF_BIN}")
-    print(f"  {tr.t("summary.obfuscator.config")}: {OBF_CONF}")
-    print(f"  {tr.t("summary.obfuscator.public")}: 0.0.0.0:{pub_port}")
-    print(f"  {tr.t("summary.obfuscator.masking")}: {masking}")
+    print(f"  {tr.t('summary.obfuscator.binary')}: {OBF_BIN}")
+    print(f"  {tr.t('summary.obfuscator.config')}: {OBF_CONF}")
+    print(f"  {tr.t('summary.obfuscator.public')}: 0.0.0.0:{pub_port}")
+    print(f"  {tr.t('summary.obfuscator.masking')}: {masking}")
     print("")
     print(tr.t("summary.firewall.title"))
-    print(f"  {tr.t("summary.firewall.snippet")}: {NFT_SNIPPET}")
-    print(f"  {tr.t("summary.firewall.nat")}: {tr.t('summary.firewall.nat_masquerade', subnet=wg_subnet, wan=wan_iface)}")
+    print(f"  {tr.t('summary.firewall.snippet')}: {NFT_SNIPPET}")
+    print(f"  {tr.t('summary.firewall.nat')}: {tr.t('summary.firewall.nat_masquerade', subnet=wg_subnet, wan=wan_iface)}")
     print("")
     print(tr.t("summary.client_bundle.title"))
-    print(f"  {tr.t("summary.client_bundle.zip")}: {zip_path}")
+    print(f"  {tr.t('summary.client_bundle.zip')}: {zip_path}")
 
 if __name__ == "__main__":
     main()
