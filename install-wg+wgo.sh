@@ -78,6 +78,78 @@ prompt() {
   printf "%s" "$var"
 }
 
+# Lightweight TUI wrapper: prefer whiptail, fallback to dialog, else plain prompts.
+# Respects ASSUME_YES/NONINTERACTIVE and DRY_RUN.
+UI=none
+ui_detect() {
+  if [ -t 1 ] && command -v whiptail >/dev/null 2>&1; then UI=whiptail
+  elif [ -t 1 ] && command -v dialog   >/dev/null 2>&1; then UI=dialog
+  else UI=none; fi
+}
+
+ui_input() { # ui_input "Title" "Prompt" "default" -> echo value
+  local title="$1" prompt="$2" def="$3" out
+  if [ "$ASSUME_YES" = "1" ] || [ "$NONINTERACTIVE" = "1" ]; then
+    printf "%s [%s]: %s (auto)\n" "$prompt" "$def" "$def"
+    printf "%s" "$def"
+    return 0
+  fi
+  if [ "$DRY_RUN" = "1" ]; then
+    printf "[DRY-RUN] %s [%s]: %s\n" "$prompt" "$def" "$def"
+    printf "%s" "$def"
+    return 0
+  fi
+  case "$UI" in
+    whiptail) out=$(whiptail --title "$title" --inputbox "$prompt" 10 60 "$def" 3>&1 1>&2 2>&3);;
+    dialog)   out=$(dialog   --title "$title" --inputbox "$prompt" 10 60 "$def" 3>&1 1>&2 2>&3);;
+    *)        printf "%s [%s]: " "$prompt" "$def"; read -r out; out="${out:-$def}";;
+  esac
+  printf "%s" "$out"
+}
+
+ui_confirm() { # ui_confirm "Title" "Question" "Y|N" -> return 0/1
+  local title="$1" prompt="$2" d="${3:-Y}" yn
+  if [ "$ASSUME_YES" = "1" ] || [ "$NONINTERACTIVE" = "1" ]; then
+    [ "$d" = "Y" ] && return 0 || return 1
+  fi
+  if [ "$DRY_RUN" = "1" ]; then
+    printf "[DRY-RUN] %s (default %s)\n" "$prompt" "$d"
+    [ "$d" = "Y" ] && return 0 || return 1
+  fi
+  case "$UI" in
+    whiptail) whiptail --title "$title" --yesno "$prompt" 9 60; return $?;;
+    dialog)   dialog   --title "$title" --yesno "$prompt" 9 60; return $?;;
+    *)        while :; do
+                read -r -p "$prompt [y/n] (default $d): " yn; yn="${yn:-$d}"
+                case "$yn" in [Yy]*) return 0;; [Nn]*) return 1;; esac
+              done;;
+  esac
+}
+
+ui_menu() { # ui_menu "Title" "Prompt" tag1 "Label 1" tag2 "Label 2" ... -> echo chosen tag
+  local title="$1" prompt="$2"; shift 2
+  if [ "$ASSUME_YES" = "1" ] || [ "$NONINTERACTIVE" = "1" ]; then
+    # choose first tag as default
+    printf "%s" "$1"
+    return 0
+  fi
+  if [ "$DRY_RUN" = "1" ]; then
+    printf "[DRY-RUN] %s\n" "$prompt"
+    printf "%s" "$1"
+    return 0
+  fi
+  case "$UI" in
+    whiptail) whiptail --title "$title" --menu "$prompt" 15 60 7 "$@" 3>&1 1>&2 2>&3;;
+    dialog)   dialog   --title "$title" --menu "$prompt" 15 60 7 "$@" 3>&1 1>&2 2>&3;;
+    *)        echo "$prompt"
+              local args=("$@"); local i=0
+              while [ $i -lt ${#args[@]} ]; do
+                printf "  %s  %s\n" "${args[$i]}" "${args[$((i+1))]}"; i=$((i+2))
+              done
+              local sel; read -r -p "Enter choice (tag): " sel; printf "%s" "$sel";;
+  esac
+}
+
 # Command runner: executes or prints
 run() {
   if [ "$DRY_RUN" = "1" ]; then
@@ -271,11 +343,15 @@ json_put wan_addr "$WAN_ADDR"
 log "WAN IPv4: $WAN_ADDR"
 
 # ========= Prompts =========
-PUB_PORT="$(prompt "Public UDP port for wg-obfuscator" "$DEFAULT_PUB_PORT")"
-WG_PORT="$(prompt "Internal WireGuard port (loopback-only via firewall)" "$DEFAULT_WG_PORT")"
-WG_SUBNET="$(prompt "WireGuard server subnet (IPv4 CIDR)" "$DEFAULT_SUBNET")"
+ui_detect
+PUB_PORT="$(ui_input "wg-obfuscator" "Public UDP port for wg-obfuscator" "$DEFAULT_PUB_PORT")"
+WG_PORT="$(ui_input "WireGuard" "Internal WireGuard port (loopback-only via firewall)" "$DEFAULT_WG_PORT")"
+WG_SUBNET="$(ui_input "WireGuard" "WireGuard server subnet (IPv4 CIDR)" "$DEFAULT_SUBNET")"
 # Prompt label corrected: STUTN -> STUN
-MASKING="$(prompt "Obfuscator masking (STUN|AUTO|NONE)" "$DEFAULT_MASKING")"
+MASKING="$(ui_menu  "Obfuscation" "Choose masking mode" \
+          STUN "STUN emulation" AUTO "Auto-detect" NONE "No masking")"
+# ensure default
+[ -z "$MASKING" ] && MASKING="$DEFAULT_MASKING"
 # correct a potential typo input (STUTN->STUN)
 [ "$MASKING" = "STUTN" ] && MASKING="STUN"
 
@@ -300,7 +376,7 @@ log "Updating APT and installing packages..."
 export DEBIAN_FRONTEND=noninteractive
 run "apt-get update -y"
 run "apt-get upgrade -y"
-  run "apt-get install -y --no-install-recommends wireguard wireguard-tools nftables iproute2 jq curl git build-essential ipcalc"
+  run "apt-get install -y --no-install-recommends wireguard wireguard-tools nftables iproute2 jq curl git build-essential ipcalc whiptail || apt-get install -y --no-install-recommends dialog"
 
 # ========= Kernel WG availability / userspace fallback =========
 WG_KERNEL_OK=1
