@@ -1,0 +1,1 @@
+# wg_installer/obfuscator/__init__.py

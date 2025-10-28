@@ -4,7 +4,8 @@ Installer for wg-obfuscator and WireGuard on Debian/Ubuntu systems.
 
 What this repository contains
 
-- `install-wg+wgo.sh` — installer script that builds/installs `wg-obfuscator`, configures WireGuard, and manages nftables rules for a loopback-only WireGuard instance.
+- `install-wg+wgo.sh` — installer script that builds/installs `wg-obfuscator`, configures WireGuard, and manages nftables rules for a loopback-only WireGuard instance. (Alternative Bash implementation; the Python version in `wg_installer/` is recommended for new installations.)
+- `wg_installer/` — Python package providing a CLI and optional TUI for installation, with internationalization support.
 
 Quick usage
 

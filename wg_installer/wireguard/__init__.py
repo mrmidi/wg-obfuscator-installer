@@ -1,0 +1,1 @@
+# wg_installer/wireguard/__init__.py
