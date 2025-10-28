@@ -23,9 +23,18 @@ apt-get install -y --no-install-recommends python3 python3-venv python3-pip
 STATE_DIR="/var/lib/wg-installer"
 VENV_DIR="${STATE_DIR}/venv"
 mkdir -p "$STATE_DIR"
-python3 -m venv "$VENV_DIR"
-# Ensure pip is up to date inside venv
-"$VENV_DIR/bin/python" -m pip install --upgrade pip
+# Create venv under /var/lib/wg-installer if it doesn't exist
+if [ ! -d "$VENV_DIR" ]; then
+  python3 -m venv "$VENV_DIR"
+  # Ensure pip is up to date inside venv
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip
+fi
+
+# Activate venv in this shell (best-effort). This makes `python`/`pip` available
+if [ -f "$VENV_DIR/bin/activate" ]; then
+  # shellcheck source=/dev/null
+  . "$VENV_DIR/bin/activate"
+fi
 
 # Write requirements if not present (kept simple & pinned)
 REQS="$SCRIPT_DIR/requirements.txt"
@@ -36,8 +45,29 @@ Pillow==10.3.0
 EOF
 fi
 
+# Parse arguments and support --test
+TEST_MODE=0
+NEWARGS=()
+for a in "$@"; do
+  if [ "$a" = "--test" ]; then
+    TEST_MODE=1
+  else
+    NEWARGS+=("$a")
+  fi
+done
+# Replace positional args with filtered args
+set -- "${NEWARGS[@]}"
+
 # Install Python deps in venv (quiet-ish)
 "$VENV_DIR/bin/pip" install -r "$REQS"
+
+if [ "$TEST_MODE" -eq 1 ]; then
+  # install test dependencies and run pytest
+  "$VENV_DIR/bin/pip" install --upgrade pytest
+  # run tests located in the tests/ directory next to the script
+  "$VENV_DIR/bin/pytest" -q "$SCRIPT_DIR/tests"
+  exit $?
+fi
 
 # Hand off to Python orchestrator; pass through args
 # Ensure the package exists (package directory or main module)
