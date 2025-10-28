@@ -11,8 +11,9 @@ from wg_installer.obfuscator.manager import ensure_obfuscator_built, ensure_obfu
 from wg_installer.firewall.nft import apply_rules
 from wg_installer.core.fs import write_file
 from wg_installer.export.bundle import build_client_bundle
-from wg_installer.export.http_share import serve_zip
+from wg_installer.export.http_share import serve_files
 from wg_installer.tui.wizard import run_tui
+from wg_installer.tui.textual_wizard import run_textual_wizard, Config as TuiConfig
 from wg_installer.core.state import StateDB
 
 def build_parser() -> argparse.ArgumentParser:
@@ -101,7 +102,7 @@ def ensure_packages(r: Runner) -> None:
 
     needed = [
         "wireguard", "wireguard-tools", "nftables", "iproute2",
-        "curl", "git", "build-essential"
+        "curl", "git", "build-essential", "default-jdk", "unzip"
     ]
     missing = []
     for pkg in needed:
@@ -164,19 +165,42 @@ def main() -> int:
 
     # Run TUI or CLI
     if not args.no_tui:
-        tui_config = run_tui(tr, defaults)
-        if tui_config is None:
-            raise SystemExit("TUI cancelled")
-        config = Config(
-            public_host=tui_config.public_host,
-            pub_port=tui_config.pub_port,
-            wg_port=tui_config.wg_port,
-            wg_subnet=tui_config.wg_subnet,
-            masking=tui_config.masking,
-            mtu=tui_config.mtu,
+        cfg = run_textual_wizard(
+            default_public_host=defaults["host"],
+            default_pub_port=defaults["pub_port"],
+            default_wg_port=defaults["wg_port"],
+            default_wg_subnet=defaults["wg_subnet"],
+            default_masking=defaults["masking"],
+            default_mtu=defaults["mtu"],
+            default_http_share=False,
+            default_build_apk=False,
         )
-        args.http_share = args.http_share or tui_config.http_share
-        args.build_apk = args.build_apk or tui_config.build_apk
+        if cfg is None:
+            # fallback to old TUI
+            tui_config = run_tui(tr, defaults)
+            if tui_config is None:
+                raise SystemExit("TUI cancelled")
+            config = Config(
+                public_host=tui_config.public_host,
+                pub_port=tui_config.pub_port,
+                wg_port=tui_config.wg_port,
+                wg_subnet=tui_config.wg_subnet,
+                masking=tui_config.masking,
+                mtu=tui_config.mtu,
+            )
+            args.http_share = args.http_share or tui_config.http_share
+            args.build_apk = args.build_apk or tui_config.build_apk
+        else:
+            config = Config(
+                public_host=cfg.public_host,
+                pub_port=cfg.pub_port,
+                wg_port=cfg.wg_port,
+                wg_subnet=cfg.wg_subnet,
+                masking=cfg.masking,
+                mtu=cfg.mtu,
+            )
+            args.http_share = args.http_share or cfg.http_share
+            args.build_apk = args.build_apk or cfg.build_apk
     else:
         # CLI mode - use defaults for now
         config = Config(
@@ -184,7 +208,8 @@ def main() -> int:
             pub_port=3478,
             wg_port=51820,
             wg_subnet="10.0.0.0/24",
-            masking="STUN"
+            masking="STUN",
+            mtu=1420
         )
 
     # Detect public host if auto
@@ -230,17 +255,19 @@ def main() -> int:
         obf_key=obf_key,
         r=r
     )
-
-    if args.http_share:
-        serve_zip(config.public_host, args.http_port, zip_path.name, r)
-
+    apk_name = None
     if args.build_apk:
         from wg_installer.android.builder import AndroidAPKBuilder, AndroidBuildConfig
         state_db = StateDB(Path("/var/lib/wg-installer/state.json"))
         build_config = AndroidBuildConfig(apk_output_dir=args.apk_output_dir or Path("/var/lib/wg-installer/export"))
         builder = AndroidAPKBuilder(build_config, r, state_db)
         apk_path = builder.build_apk(config)
+        apk_name = Path(apk_path).name if apk_path is not None else None
         print(f"APK built: {apk_path}")
+
+    if args.http_share:
+        # If we built an APK, share both APK and ZIP; otherwise share only ZIP
+        serve_files(config.public_host, args.http_port, zip_path.name, apk_name, r)
 
     print("Installation complete")
     return 0

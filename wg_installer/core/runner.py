@@ -13,15 +13,20 @@ class Runner:
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
 
-    def run(self, args: Sequence[str], *, check: bool = True, capture: bool = False) -> RunResult:
-        text = " ".join(args)
+    def run(self, args: Sequence[str], *, check: bool = True, capture: bool = False, **subprocess_kwargs) -> RunResult:
+        """Run a subprocess command.
+
+        Accepts optional keyword args passed through to subprocess.run (e.g. cwd, env).
+        If capture=True, stdout/stderr are captured and returned in the RunResult (text mode).
+        """
+        text = " ".join(map(str, args))
         if self.dry_run:
             print(f"[DRY-RUN] {text}")
             return RunResult(0, "", "")
         if capture:
-            c = subprocess.run(args, check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            c = subprocess.run(args, check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **subprocess_kwargs)
             return RunResult(c.returncode, c.stdout, c.stderr)
-        c = subprocess.run(args, check=check)
+        c = subprocess.run(args, check=check, **subprocess_kwargs)
         return RunResult(c.returncode, "", "")
 
     def shell(self, cmd: str, *, check: bool = True, capture: bool = False) -> RunResult:
